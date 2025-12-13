@@ -9,6 +9,10 @@ export interface FileResponse {
 }
 
 export const uploadFilesToSpring = async (files: FileList | File[], userId: string) => {
+  console.log('API: Starting upload to', `${SPRING_API_BASE}/files/upload`);
+  console.log('API: UserId:', userId);
+  console.log('API: Files:', Array.from(files).map(f => f.name));
+  
   const formData = new FormData();
   
   Array.from(files).forEach(file => {
@@ -16,27 +20,50 @@ export const uploadFilesToSpring = async (files: FileList | File[], userId: stri
   });
   formData.append('userId', userId);
 
-  const response = await fetch(`${SPRING_API_BASE}/files/upload`, {
-    method: 'POST',
-    body: formData
-  });
+  try {
+    const response = await fetch(`${SPRING_API_BASE}/files/upload`, {
+      method: 'POST',
+      body: formData
+    });
 
-  if (!response.ok) {
-    throw new Error('Upload failed');
+    console.log('API: Upload response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API: Upload error response:', errorText);
+      throw new Error(`Upload failed: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('API: Upload success:', result);
+    return result;
+  } catch (error) {
+    console.error('API: Upload network error:', error);
+    throw error;
   }
-
-  return response.json();
 };
 
 export const getFilesFromSpring = async (userId: string): Promise<FileResponse[]> => {
-  const response = await fetch(`${SPRING_API_BASE}/files/list?userId=${userId}`);
+  console.log('API: Fetching files for userId:', userId);
   
-  if (!response.ok) {
-    throw new Error('Failed to fetch files');
-  }
+  try {
+    const response = await fetch(`${SPRING_API_BASE}/files/list?userId=${userId}`);
+    
+    console.log('API: Files response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API: Files error response:', errorText);
+      throw new Error(`Failed to fetch files: ${response.status} - ${errorText}`);
+    }
 
-  const data = await response.json();
-  return data.files || [];
+    const data = await response.json();
+    console.log('API: Files data received:', data);
+    return data.files || [];
+  } catch (error) {
+    console.error('API: Files network error:', error);
+    throw error;
+  }
 };
 
 export const downloadFileFromSpring = async (fileId: number, userId: string) => {
