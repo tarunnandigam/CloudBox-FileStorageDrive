@@ -22,6 +22,7 @@ CloudBox/
 - **Node.js 18+** (for frontend)
 - **Java 17+** (for backend)
 - **Maven 3.6+** (for backend)
+- **AWS Account** (for S3 storage)
 
 ### 1. Start Backend (Spring Boot)
 ```bash
@@ -46,9 +47,9 @@ Frontend runs on: `http://localhost:3000`
 ## 📁 File Management
 - **Spring Boot** - Handles all file operations
 - **Upload** - Drag & drop or click to upload
-- **Download** - Direct file download
+- **Download** - Direct file download from S3
 - **Delete** - Remove files with confirmation
-- **Storage** - Files stored locally with metadata in H2 database
+- **Storage** - Files stored in AWS S3 with metadata in H2 database
 
 ## 🛠️ Tech Stack
 
@@ -64,6 +65,7 @@ Frontend runs on: `http://localhost:3000`
 - **Maven** - Dependency management
 - **H2 Database** - In-memory database
 - **JPA/Hibernate** - ORM
+- **AWS S3** - Cloud file storage
 
 ## 📱 Features
 - ✅ Responsive design (mobile, tablet, desktop)
@@ -107,6 +109,40 @@ mvn test              # Run tests
 ## 📦 Deployment
 - **Frontend**: Deploy to Vercel, Netlify, or any static host
 - **Backend**: Deploy to Heroku, AWS, or any Java hosting service
+- **Storage**: AWS S3 bucket for file storage
+
+## ☁️ AWS S3 Configuration
+
+### Required AWS Setup
+1. Create AWS S3 bucket
+2. Create IAM user with S3 permissions
+3. Get Access Key ID and Secret Access Key
+4. Update `application.properties` with your AWS credentials:
+
+```properties
+aws.access-key-id=YOUR_ACCESS_KEY_ID
+aws.secret-access-key=YOUR_SECRET_ACCESS_KEY
+aws.s3.bucket-name=YOUR_BUCKET_NAME
+aws.region=us-east-1
+```
+
+### IAM Policy (Minimum Required Permissions)
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:DeleteObject"
+            ],
+            "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/*"
+        }
+    ]
+}
+```
 
 ---
 

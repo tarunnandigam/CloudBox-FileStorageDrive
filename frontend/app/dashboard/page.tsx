@@ -16,43 +16,50 @@ import {
   Download,
   Trash2,
   LogOut,
-  Home,
   HardDrive,
   FileText,
   Clock,
   Heart,
   ShoppingCart,
   Share2,
-  Edit3
+  Edit3,
+  ArrowLeft
 } from "lucide-react";
 import { logOut } from "@/lib/auth/auth.actions";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/user.context";
-import { uploadFilesToSpring, getFilesFromSpring, deleteFileFromSpring, downloadFileFromSpring, FileResponse } from "@/lib/api/files.actions";
+import { uploadFilesToSpring, getFilesFromSpring, deleteFileFromSpring, downloadFileFromSpring, createFolderInSpring, deleteFolderFromSpring, getStorageUsage, FileResponse, FolderResponse } from "@/lib/api/files.actions";
 
 export default function Dashboard() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [files, setFiles] = useState<FileResponse[]>([]);
+  const [folders, setFolders] = useState<FolderResponse[]>([]);
+  const [currentFolderPath, setCurrentFolderPath] = useState<string>("");
+  const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [showDeleteFolderDialog, setShowDeleteFolderDialog] = useState(false);
+  const [folderToDelete, setFolderToDelete] = useState<{fullPath: string, name: string} | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
-  const [activeSection, setActiveSection] = useState<"home" | "mydrive" | "shared" | "favourite" | "trash">("home");
+  const [activeSection, setActiveSection] = useState<"mydrive" | "shared" | "favourite" | "trash">("mydrive");
   const [favoriteFiles, setFavoriteFiles] = useState<Set<number>>(new Set());
-  const [favoriteFolders, setFavoriteFolders] = useState<Set<number>>(new Set());
-  const [folders, setFolders] = useState<Array<{id: number, name: string, modified: string}>>([]);
+
+
   const [trashedFiles, setTrashedFiles] = useState<FileResponse[]>([]);
   const [trashedFolders, setTrashedFolders] = useState<Array<{id: number, name: string, modified: string}>>([]);
-  const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
+
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteItem, setDeleteItem] = useState<{id: number, type: 'file' | 'folder', name: string} | null>(null);
+
   const [notifications, setNotifications] = useState<Array<{id: number, message: string, type: 'success' | 'error' | 'info'}>>([]);
   const [showStorageDialog, setShowStorageDialog] = useState(false);
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annually">("monthly");
+  const [storageUsage, setStorageUsage] = useState({ usedMB: 0, maxMB: 1024, percentage: 0, availableMB: 1024 });
 
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     const id = Date.now();
@@ -76,12 +83,11 @@ export default function Dashboard() {
 
   const getSectionTitle = () => {
     switch (activeSection) {
-      case "home": return "Home";
       case "mydrive": return "My Drive";
       case "shared": return "Shared with me";
       case "favourite": return "Favourite";
       case "trash": return "Trash";
-      default: return "Home";
+      default: return "My Drive";
     }
   };
 
@@ -116,19 +122,11 @@ export default function Dashboard() {
   };
 
   const getGroupedRecentItems = () => {
-    const recentFiles = files.slice(0, 5).filter(file => 
+    const recentFiles = (files || []).slice(0, 8).filter(file => 
       file.name.toLowerCase().includes(searchQuery.toLowerCase())
     ).map(file => ({...file, type: 'file'}));
     
-    const recentFolders = folders.slice(0, 5).filter(folder => 
-      folder.name.toLowerCase().includes(searchQuery.toLowerCase())
-    ).map(folder => ({...folder, type: 'folder'}));
-    
-    const allItems = [...recentFiles, ...recentFolders]
-      .sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime())
-      .slice(0, 8);
-    
-    const grouped = allItems.reduce((acc, item) => {
+    const grouped = recentFiles.reduce((acc, item) => {
       const relativeDate = getRelativeDate(item.modified);
       if (!acc[relativeDate]) {
         acc[relativeDate] = [];
@@ -144,11 +142,11 @@ export default function Dashboard() {
     let filteredFiles;
     
     if (activeSection === "trash") {
-      filteredFiles = trashedFiles.filter(file => 
+      filteredFiles = (trashedFiles || []).filter(file => 
         file.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
     } else {
-      filteredFiles = files.filter(file => 
+      filteredFiles = (files || []).filter(file => 
         file.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
       
@@ -164,11 +162,11 @@ export default function Dashboard() {
     let filteredFolders;
     
     if (activeSection === "trash") {
-      filteredFolders = trashedFolders.filter(folder => 
+      filteredFolders = (trashedFolders || []).filter(folder => 
         folder.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
     } else {
-      filteredFolders = folders.filter(folder => 
+      filteredFolders = (folders || []).filter(folder => 
         folder.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
@@ -199,46 +197,11 @@ export default function Dashboard() {
     }
   };
 
-  const toggleFolderFavorite = (folderId: number) => {
-    const folder = folders.find(f => f.id === folderId) || trashedFolders.find(f => f.id === folderId);
-    const isCurrentlyFavorite = favoriteFolders.has(folderId);
-    
-    setFavoriteFolders(prev => {
-      const newFavorites = new Set(prev);
-      if (newFavorites.has(folderId)) {
-        newFavorites.delete(folderId);
-      } else {
-        newFavorites.add(folderId);
-      }
-      return newFavorites;
-    });
-    
-    if (folder) {
-      if (isCurrentlyFavorite) {
-        showNotification(`Folder "${folder.name}" removed from favorites`);
-      } else {
-        showNotification(`Folder "${folder.name}" added to favorites`);
-      }
-    }
-  };
 
-  const handleCreateFolder = () => {
-    setShowCreateFolderDialog(true);
-  };
 
-  const createFolder = () => {
-    if (newFolderName.trim()) {
-      const newFolder = {
-        id: Date.now(),
-        name: newFolderName.trim(),
-        modified: new Date().toISOString()
-      };
-      setFolders(prev => [...prev, newFolder]);
-      showNotification(`Folder "${newFolderName.trim()}" created successfully`);
-      setNewFolderName("");
-      setShowCreateFolderDialog(false);
-    }
-  };
+
+
+
 
   const moveFileToTrash = (fileId: number) => {
     const fileToTrash = files.find(file => file.id === fileId);
@@ -294,35 +257,90 @@ export default function Dashboard() {
     });
   };
 
-  const handleDeleteFile = async (fileId: number) => {
-    if (activeSection === "trash") {
-      const file = trashedFiles.find(f => f.id === fileId);
-      if (file) {
-        setDeleteItem({id: fileId, type: 'file', name: file.name});
-        setShowDeleteConfirm(true);
+  const handleDeleteFile = async (file: FileResponse) => {
+    if (!user?.email) return;
+    
+    try {
+      // Use the file's S3 key for deletion
+      const response = await fetch(`http://localhost:8080/api/files/file?s3Key=${encodeURIComponent(file.key)}&userId=${user.email}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete file');
       }
-    } else {
-      moveFileToTrash(fileId);
-      // Also call backend delete if needed
-      if (user?.email) {
-        try {
-          await deleteFileFromSpring(fileId, user.email);
-        } catch (error) {
-          console.error('Backend delete failed:', error);
-        }
+      
+      await loadFiles();
+      showNotification(`"${file.name}" deleted successfully`);
+    } catch (error) {
+      console.error('Delete file failed:', error);
+      showNotification('Failed to delete file', 'error');
+    }
+  };
+
+
+
+
+
+  const createFolder = async () => {
+    if (newFolderName.trim() && user?.email) {
+      try {
+        await createFolderInSpring(newFolderName.trim(), user.email, currentFolderPath);
+        await loadFiles();
+        showNotification(`Folder "${newFolderName.trim()}" created successfully`);
+        setNewFolderName("");
+        setShowCreateFolderDialog(false);
+      } catch (error) {
+        console.error('Failed to create folder:', error);
+        showNotification('Failed to create folder', 'error');
       }
     }
   };
 
-  const handleDeleteFolder = (folderId: number) => {
-    if (activeSection === "trash") {
-      const folder = trashedFolders.find(f => f.id === folderId);
-      if (folder) {
-        setDeleteItem({id: folderId, type: 'folder', name: folder.name});
-        setShowDeleteConfirm(true);
+  const handleFolderClick = (folder: FolderResponse) => {
+    setCurrentFolderPath(folder.fullPath);
+  };
+
+  const handleDeleteFolder = (folderPath: string, folderName: string) => {
+    setFolderToDelete({fullPath: folderPath, name: folderName});
+    setShowDeleteFolderDialog(true);
+  };
+
+  const confirmDeleteFolder = async () => {
+    if (!user?.email || !folderToDelete) return;
+    
+    try {
+      await deleteFolderFromSpring(folderToDelete.fullPath, user.email);
+      await loadFiles();
+      showNotification(`Folder "${folderToDelete.name}" deleted successfully`);
+    } catch (error) {
+      console.error('Delete folder failed:', error);
+      showNotification('Failed to delete folder', 'error');
+    } finally {
+      setShowDeleteFolderDialog(false);
+      setFolderToDelete(null);
+    }
+  };
+
+  const clearAll = async () => {
+    if (!user?.email) return;
+    
+    if (confirm('Are you sure you want to delete ALL files and folders? This cannot be undone.')) {
+      try {
+        const response = await fetch(`http://localhost:8080/api/files/clear-all?userId=${user.email}`, {
+          method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to clear all');
+        }
+        
+        await loadFiles();
+        showNotification('All files and folders cleared successfully');
+      } catch (error) {
+        console.error('Clear all failed:', error);
+        showNotification('Failed to clear all', 'error');
       }
-    } else {
-      moveFolderToTrash(folderId);
     }
   };
 
@@ -352,14 +370,10 @@ export default function Dashboard() {
       return;
     }
     
-    console.log('Starting upload for user:', user.email);
-    console.log('Files to upload:', Array.from(uploadedFiles).map(f => f.name));
-    
     setLoading(true);
     setIsUploading(true);
     setUploadProgress(0);
     
-    // Simulate progress
     const progressInterval = setInterval(() => {
       setUploadProgress(prev => {
         if (prev >= 90) return prev;
@@ -368,24 +382,18 @@ export default function Dashboard() {
     }, 200);
     
     try {
-      const result = await uploadFilesToSpring(uploadedFiles, user.email);
-      console.log('Upload result:', result);
-      
-      // Complete progress
+      const result = await uploadFilesToSpring(uploadedFiles, user.email, currentFolderPath);
       setUploadProgress(100);
       clearInterval(progressInterval);
       
-      // Small delay to show completion
       setTimeout(async () => {
         await loadFiles();
         setIsUploading(false);
         setUploadProgress(0);
         
-        // Show success notification
         const fileCount = Array.from(uploadedFiles).length;
-        const fileNames = Array.from(uploadedFiles).map(f => f.name).join(', ');
         if (fileCount === 1) {
-          showNotification(`File "${fileNames}" uploaded successfully`);
+          showNotification(`File uploaded successfully`);
         } else {
           showNotification(`${fileCount} files uploaded successfully`);
         }
@@ -395,7 +403,7 @@ export default function Dashboard() {
       clearInterval(progressInterval);
       setIsUploading(false);
       setUploadProgress(0);
-      alert('Upload failed: ' + (error as Error).message);
+      showNotification('Upload failed: ' + (error as Error).message, 'error');
     } finally {
       setLoading(false);
     }
@@ -407,11 +415,21 @@ export default function Dashboard() {
       return;
     }
     
-    console.log('Loading files for user:', user.email);
     try {
-      const userFiles = await getFilesFromSpring(user.email);
-      console.log('Loaded files:', userFiles);
-      setFiles(userFiles);
+      const result = await getFilesFromSpring(user.email, currentFolderPath);
+      setFiles(result.files);
+      setFolders(result.folders);
+      
+      // Load storage usage
+      const usage = await getStorageUsage(user.email);
+      if (usage.success) {
+        setStorageUsage({
+          usedMB: usage.usedMB,
+          maxMB: usage.maxMB,
+          percentage: usage.percentage,
+          availableMB: usage.availableMB
+        });
+      }
     } catch (error) {
       console.error('Failed to load files:', error);
     }
@@ -515,7 +533,7 @@ export default function Dashboard() {
     if (user?.email) {
       loadFiles();
     }
-  }, [user?.email]);
+  }, [user?.email, currentFolderPath]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -600,9 +618,13 @@ export default function Dashboard() {
               <Upload className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">{isUploading ? 'Uploading...' : 'Upload'}</span>
             </Button>
-            <Button variant="outline" className="border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))] hover:text-white flex-1 sm:flex-none" onClick={handleCreateFolder}>
+            <Button variant="outline" className="border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))] hover:text-white flex-1 sm:flex-none" onClick={() => setShowCreateFolderDialog(true)}>
               <FolderPlus className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">New Folder</span>
+            </Button>
+            <Button variant="outline" className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex-1 sm:flex-none" onClick={clearAll}>
+              <Trash2 className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Clear All</span>
             </Button>
           </div>
           
@@ -652,17 +674,10 @@ export default function Dashboard() {
         {/* Sidebar */}
         <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:relative z-50 md:z-auto w-64 h-full md:h-auto border-r border-gray-800 p-4 bg-black transition-transform duration-300 ease-in-out`}>
           <nav className="space-y-2">
+
             <Button 
               variant="ghost" 
-              onClick={() => setActiveSection("home")}
-              className={`w-full justify-start ${activeSection === "home" ? "text-[hsl(var(--primary))] bg-[hsl(var(--primary))]/10" : "text-white"} hover:bg-[hsl(var(--primary))] hover:text-white`}
-            >
-              <Home className="w-4 h-4 mr-3" />
-              Home
-            </Button>
-            <Button 
-              variant="ghost" 
-              onClick={() => setActiveSection("mydrive")}
+              onClick={() => { setActiveSection("mydrive"); loadFiles(); }}
               className={`w-full justify-start ${activeSection === "mydrive" ? "text-[hsl(var(--primary))] bg-[hsl(var(--primary))]/10" : "text-white"} hover:bg-[hsl(var(--primary))] hover:text-white`}
             >
               <HardDrive className="w-4 h-4 mr-3" />
@@ -701,13 +716,13 @@ export default function Dashboard() {
                 <HardDrive className="w-4 h-4 mr-2" />
                 Storage
               </h3>
-              <p className="text-xs text-gray-400 mb-2">17.1 GB of 20 GB used</p>
+              <p className="text-xs text-gray-400 mb-2">{storageUsage.usedMB} MB of {storageUsage.maxMB} MB used</p>
               
               <div className="w-full bg-gray-700 rounded-full h-2 mb-3">
-                <div className="bg-[hsl(var(--primary))] h-2 rounded-full transition-all duration-300" style={{ width: '85.5%' }}></div>
+                <div className="bg-[hsl(var(--primary))] h-2 rounded-full transition-all duration-300" style={{ width: `${Math.min(storageUsage.percentage, 100)}%` }}></div>
               </div>
               
-              <p className="text-xs text-gray-400 mb-4">85.5% Full • 2.9 GB available</p>
+              <p className="text-xs text-gray-400 mb-4">{storageUsage.percentage}% Full • {storageUsage.availableMB} MB available</p>
               
               <Button size="sm" className="w-full bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/.9)] text-white" onClick={() => setShowStorageDialog(true)}>
                 <ShoppingCart className="w-4 h-4 mr-2" />
@@ -736,98 +751,36 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Home Section */}
-          {activeSection === "home" && (
-            <div className="space-y-8">
-              {files.length === 0 && folders.length === 0 && (
-                <div className="text-center py-8">
-                  <h1 className="text-3xl md:text-4xl font-bold text-white mb-4">Welcome to Drive</h1>
-                  <p className="text-gray-400">Your files, anywhere you go</p>
-                </div>
-              )}
-              
-              <div>
-                <h2 className="text-xl font-semibold text-white mb-4">Recent</h2>
-                {Object.keys(getGroupedRecentItems()).length === 0 ? (
-                  <div className="text-center py-8">
-                    <File className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                    {searchQuery ? (
-                      <p className="text-gray-500 mb-4">No files found</p>
-                    ) : (
-                      <>
-                        <p className="text-gray-500 mb-4">No files uploaded yet</p>
-                        <Button className="bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/.9)] text-white" onClick={handleUploadClick}>
-                          <Upload className="w-4 h-4 mr-2" />
-                          Upload Your First File
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {Object.entries(getGroupedRecentItems()).map(([dateGroup, groupItems]) => (
-                      <div key={dateGroup}>
-                        <h3 className="text-sm font-medium text-gray-300 mb-3">{dateGroup}</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                          {groupItems.map((item) => (
-                            <Card key={`${item.type}-${item.id}`} className="bg-gray-900 border-gray-700 hover:bg-gray-800 cursor-pointer">
-                              <CardContent className="p-4 relative">
-                                <div className="absolute top-2 right-2">
-                                  <div className="flex items-center gap-1">
-                                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-blue-400 hover:bg-gray-700" title="Share">
-                                      <Share2 className="w-3 h-3" />
-                                    </Button>
-                                    <Button variant="ghost" size="sm" className={`h-6 w-6 p-0 hover:bg-gray-700 ${item.type === 'file' ? (favoriteFiles.has(item.id) ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400') : (favoriteFolders.has(item.id) ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400')}`} title="Favorite" onClick={() => item.type === 'file' ? toggleFavorite(item.id) : toggleFolderFavorite(item.id)}>
-                                      <Heart className={`w-3 h-3 ${item.type === 'file' ? (favoriteFiles.has(item.id) ? 'fill-current' : '') : (favoriteFolders.has(item.id) ? 'fill-current' : '')}`} />
-                                    </Button>
-                                    {item.type === 'file' ? (
-                                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-green-400 hover:bg-gray-700" title="Download" onClick={() => handleDownloadFile(item.id, item.name)}>
-                                        <Download className="w-3 h-3" />
-                                      </Button>
-                                    ) : (
-                                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Delete" onClick={() => handleDeleteFolder(item.id)}>
-                                        <Trash2 className="w-3 h-3" />
-                                      </Button>
-                                    )}
-                                  </div>
-                                </div>
-                                {item.type === 'file' ? (
-                                  <File className="w-8 h-8 text-blue-400 mb-2" />
-                                ) : (
-                                  <Folder className="w-8 h-8 text-yellow-400 mb-2" />
-                                )}
-                                <h4 className="font-medium text-sm text-white mb-1" title={item.name}>
-                                  {item.name.length > 15 ? `${item.name.substring(0, 15)}...` : item.name}
-                                </h4>
-                                {item.type === 'file' && <p className="text-xs text-gray-400">{item.size}</p>}
-                                <p className="text-xs text-gray-500">{formatTimestamp(item.modified)}</p>
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+
 
           {/* My Drive Section */}
           {activeSection === "mydrive" && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-white">My Drive</h2>
+              {/* Breadcrumb Navigation */}
+              {currentFolderPath && (
+                <div className="flex items-center gap-2 mb-4">
+                  <Button variant="ghost" size="sm" onClick={() => setCurrentFolderPath("")} className="text-gray-400 hover:text-white">
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back
+                  </Button>
+                  <span className="text-gray-400">/{currentFolderPath}</span>
+                </div>
+              )}
+              
+              <h2 className="text-2xl font-bold text-white">
+                {currentFolderPath ? `${currentFolderPath.split('/').pop()} Folder` : 'My Drive'}
+              </h2>
               
               {/* Folders Section */}
-              {getFilteredFolders().length > 0 && (
+              {folders && folders.length > 0 && (
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-4">Folders</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
-                    {getFilteredFolders().map((folder) => (
-                      <Card key={folder.id} className="bg-gray-900 border-gray-700 hover:bg-gray-800 cursor-pointer relative">
+                    {folders.map((folder) => (
+                      <Card key={folder.id} className="bg-gray-900 border-gray-700 hover:bg-gray-800 cursor-pointer">
                         <CardContent className="p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3" onClick={() => handleFolderClick(folder)}>
                               <Folder className="w-8 h-8 text-yellow-400" />
                               <div>
                                 <h4 className="font-medium text-sm text-white truncate" title={folder.name}>
@@ -836,43 +789,18 @@ export default function Dashboard() {
                                 <p className="text-xs text-gray-500">{formatTimestamp(folder.modified)}</p>
                               </div>
                             </div>
-                            <div className="relative">
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-8 w-8 p-0 text-gray-400 hover:text-white hover:bg-gray-700"
-                                onClick={(e) => { e.stopPropagation(); setOpenDropdown(openDropdown === folder.id ? null : folder.id); }}
-                              >
-                                <MoreVertical className="w-4 h-4" />
-                              </Button>
-                              {openDropdown === folder.id && (
-                                <div className="absolute right-0 top-8 bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-10 min-w-[120px]" onClick={(e) => e.stopPropagation()}>
-                                  <div className="py-1">
-                                        <button 
-                                          className="w-full px-3 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
-                                          onClick={() => { setOpenDropdown(null); }}
-                                        >
-                                          <Share2 className="w-4 h-4" />
-                                          Share
-                                        </button>
-                                        <button 
-                                          className="w-full px-3 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
-                                          onClick={() => { toggleFolderFavorite(folder.id); setOpenDropdown(null); }}
-                                        >
-                                          <Heart className={`w-4 h-4 ${favoriteFolders.has(folder.id) ? 'fill-current text-yellow-400' : ''}`} />
-                                          {favoriteFolders.has(folder.id) ? 'Remove from Favorites' : 'Add to Favorites'}
-                                        </button>
-                                        <button 
-                                          className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-gray-700 flex items-center gap-2"
-                                          onClick={() => { handleDeleteFolder(folder.id); setOpenDropdown(null); }}
-                                        >
-                                          <Trash2 className="w-4 h-4" />
-                                          Move to Trash
-                                        </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" 
+                              title="Delete Folder"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteFolder(folder.fullPath, folder.name);
+                              }}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>
@@ -880,6 +808,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
+              
+
               
               {/* Files Section */}
               {getFilteredFiles().length === 0 && getFilteredFolders().length === 0 ? (
@@ -899,7 +829,7 @@ export default function Dashboard() {
                           <Upload className="w-4 h-4 mr-2" />
                           Upload Files
                         </Button>
-                        <Button variant="outline" className="border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))] hover:text-white" onClick={handleCreateFolder}>
+                        <Button variant="outline" className="border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))] hover:text-white" onClick={() => setShowCreateFolderDialog(true)}>
                           <FolderPlus className="w-4 h-4 mr-2" />
                           New Folder
                         </Button>
@@ -927,7 +857,7 @@ export default function Dashboard() {
                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-green-400 hover:bg-gray-700" title="Download" onClick={() => handleDownloadFile(file.id, file.name)}>
                                   <Download className="w-3 h-3" />
                                 </Button>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Move to Trash" onClick={() => handleDeleteFile(file.id)}>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Delete File" onClick={() => handleDeleteFile(file)}>
                                   <Trash2 className="w-3 h-3" />
                                 </Button>
                               </div>
@@ -964,7 +894,7 @@ export default function Dashboard() {
                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-green-400" title="Download" onClick={() => handleDownloadFile(file.id, file.name)}>
                               <Download className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-red-400" title="Move to Trash" onClick={() => handleDeleteFile(file.id)}>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-red-400" title="Delete File" onClick={() => handleDeleteFile(file)}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
@@ -1201,30 +1131,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Create Folder Dialog */}
-      {showCreateFolderDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold text-white mb-4">Create New Folder</h3>
-            <Input
-              placeholder="Folder name"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              className="mb-4 bg-gray-800 border-gray-600 text-white"
-              onKeyPress={(e) => e.key === 'Enter' && createFolder()}
-              autoFocus
-            />
-            <div className="flex gap-3 justify-end">
-              <Button variant="outline" onClick={() => { setShowCreateFolderDialog(false); setNewFolderName(""); }} className="border-gray-600 text-gray-300 hover:bg-gray-800">
-                Cancel
-              </Button>
-              <Button onClick={createFolder} className="bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/.9)] text-white" disabled={!newFolderName.trim()}>
-                Create
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Delete Confirmation Dialog */}
       {showDeleteConfirm && deleteItem && (
@@ -1257,6 +1164,8 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+
 
       {/* Storage Subscription Dialog */}
       {showStorageDialog && (
@@ -1448,6 +1357,59 @@ export default function Dashboard() {
               <div className="mt-6 text-center">
                 <p className="text-sm text-gray-400">All plans include secure cloud storage and can be cancelled anytime</p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Folder Dialog */}
+      {showCreateFolderDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-white mb-4">Create New Folder</h3>
+            <Input
+              placeholder="Folder name"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              className="mb-4 bg-gray-800 border-gray-600 text-white"
+              onKeyPress={(e) => e.key === 'Enter' && createFolder()}
+              autoFocus
+            />
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => { setShowCreateFolderDialog(false); setNewFolderName(""); }} className="border-gray-600 text-gray-300 hover:bg-gray-800">
+                Cancel
+              </Button>
+              <Button onClick={createFolder} className="bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/.9)] text-white" disabled={!newFolderName.trim()}>
+                Create
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Folder Confirmation Dialog */}
+      {showDeleteFolderDialog && folderToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-white mb-4">Delete Folder</h3>
+            <p className="text-gray-300 mb-6">
+              Are you sure you want to delete the folder <span className="font-semibold text-white">"{folderToDelete.name}"</span>? 
+              This will permanently delete the folder and all files inside it.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button 
+                variant="outline" 
+                onClick={() => { setShowDeleteFolderDialog(false); setFolderToDelete(null); }} 
+                className="border-gray-600 text-gray-300 hover:bg-gray-800"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={confirmDeleteFolder} 
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                Delete Folder
+              </Button>
             </div>
           </div>
         </div>
