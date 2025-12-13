@@ -8,5 +8,7 @@ import java.util.List;
 @Repository
 public interface FileRepository extends JpaRepository<FileEntity, Long> {
     List<FileEntity> findByUserId(String userId);
+    List<FileEntity> findByUserIdAndFolderPath(String userId, String folderPath);
+    List<FileEntity> findByUserIdAndFolderPathIsNull(String userId);
     void deleteByIdAndUserId(Long id, String userId);
 }

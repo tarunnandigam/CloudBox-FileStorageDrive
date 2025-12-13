@@ -26,8 +26,11 @@ public class FileEntity {
     @Column(nullable = false)
     private String userId;
     
-    @Column(nullable = false)
-    private String filePath;
+    @Column(name = "s3_key", nullable = false)
+    private String s3Key;
+    
+    @Column(name = "folder_path")
+    private String folderPath;
     
     @Column(nullable = false)
     private LocalDateTime uploadedAt;
@@ -36,13 +39,14 @@ public class FileEntity {
     public FileEntity() {}
     
     public FileEntity(String fileName, String originalName, Long fileSize, 
-                     String contentType, String userId, String filePath) {
+                     String contentType, String userId, String s3Key, String folderPath) {
         this.fileName = fileName;
         this.originalName = originalName;
         this.fileSize = fileSize;
         this.contentType = contentType;
         this.userId = userId;
-        this.filePath = filePath;
+        this.s3Key = s3Key;
+        this.folderPath = folderPath;
         this.uploadedAt = LocalDateTime.now();
     }
     
@@ -65,8 +69,11 @@ public class FileEntity {
     public String getUserId() { return userId; }
     public void setUserId(String userId) { this.userId = userId; }
     
-    public String getFilePath() { return filePath; }
-    public void setFilePath(String filePath) { this.filePath = filePath; }
+    public String getS3Key() { return s3Key; }
+    public void setS3Key(String s3Key) { this.s3Key = s3Key; }
+    
+    public String getFolderPath() { return folderPath; }
+    public void setFolderPath(String folderPath) { this.folderPath = folderPath; }
     
     public LocalDateTime getUploadedAt() { return uploadedAt; }
     public void setUploadedAt(LocalDateTime uploadedAt) { this.uploadedAt = uploadedAt; }
