@@ -1,0 +1,5 @@
+com\cloudbox\service\FileService.class
+com\cloudbox\service\S3Service.class
+com\cloudbox\CloudBoxApplication.class
+com\cloudbox\config\S3Config.class
+com\cloudbox\controller\FileController.class
