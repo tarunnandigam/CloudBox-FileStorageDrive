@@ -25,7 +25,6 @@ build/
 Thumbs.db
 
 # Backend
-backend/target/
 backend/uploads/
 *.log
 
