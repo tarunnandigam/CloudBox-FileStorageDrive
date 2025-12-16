@@ -109,7 +109,10 @@ public class FileController {
             @RequestParam(value = "folderPath", required = false) String folderPath) {
         
         try {
+            System.out.println("Controller: Listing files for userId: " + userId + ", folderPath: " + folderPath);
             Map<String, Object> result = fileService.listFiles(userId, folderPath);
+            System.out.println("Controller: Files found: " + ((List<?>) result.get("files")).size());
+            System.out.println("Controller: Folders found: " + ((List<?>) result.get("folders")).size());
             
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);

@@ -26,7 +26,18 @@ Thumbs.db
 
 # Backend
 backend/uploads/
+backend/target/
+backend/.env
+backend/mvnw.cmd
+backend/run.bat
 *.log
+*.jar
+*.class
+
+# Frontend
+frontend/.next/
+frontend/node_modules/
 
 # Temporary
 temp-repo/
+package-lock.json

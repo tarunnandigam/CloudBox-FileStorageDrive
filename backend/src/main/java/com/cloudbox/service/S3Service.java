@@ -194,7 +194,8 @@ public class S3Service {
             
             return totalSize;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to calculate storage usage: " + e.getMessage(), e);
+            System.err.println("AWS S3 connection error: " + e.getMessage());
+            return 0; // Return 0 if S3 is not accessible
         }
     }
     
