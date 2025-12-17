@@ -50,7 +50,7 @@ export default function Dashboard() {
 
 
   const [trashedFiles, setTrashedFiles] = useState<FileResponse[]>([]);
-  const [trashedFolders, setTrashedFolders] = useState<Array<{id: number, name: string, modified: string}>>([]);
+  const [trashedFolders, setTrashedFolders] = useState<FolderResponse[]>([]);
 
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -250,11 +250,6 @@ export default function Dashboard() {
 
   const permanentlyDeleteFolder = (folderId: number) => {
     setTrashedFolders(prev => prev.filter(folder => folder.id !== folderId));
-    setFavoriteFolders(prev => {
-      const newFavorites = new Set(prev);
-      newFavorites.delete(folderId);
-      return newFavorites;
-    });
   };
 
   const handleDeleteFile = async (file: FileResponse) => {
@@ -579,7 +574,7 @@ export default function Dashboard() {
               width={32}
               height={32}
             />
-            <h1 className="text-lg md:text-xl font-bold">CloudBox</h1>
+            <h1 className="text-lg md:text-xl font-bold">CloudBox File Storage</h1>
           </div>
           
           <div className="flex items-center gap-2 md:gap-4">
@@ -1030,7 +1025,7 @@ export default function Dashboard() {
                                     </button>
                                     <button 
                                       className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-gray-700 flex items-center gap-2"
-                                      onClick={() => { handleDeleteFolder(folder.id); setOpenDropdown(null); }}
+                                      onClick={() => { permanentlyDeleteFolder(folder.id); setOpenDropdown(null); }}
                                     >
                                       <Trash2 className="w-4 h-4" />
                                       Delete Permanently
@@ -1077,7 +1072,7 @@ export default function Dashboard() {
                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-green-400 hover:bg-gray-700" title="Restore" onClick={() => restoreFile(file.id)}>
                                   <Upload className="w-3 h-3" />
                                 </Button>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Delete Permanently" onClick={() => handleDeleteFile(file.id)}>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Delete Permanently" onClick={() => handleDeleteFile(file)}>
                                   <Trash2 className="w-3 h-3" />
                                 </Button>
                               </div>
@@ -1108,7 +1103,7 @@ export default function Dashboard() {
                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-green-400" title="Restore" onClick={() => restoreFile(file.id)}>
                               <Upload className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-red-400" title="Delete Permanently" onClick={() => handleDeleteFile(file.id)}>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-red-400" title="Delete Permanently" onClick={() => handleDeleteFile(file)}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
