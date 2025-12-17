@@ -574,7 +574,7 @@ export default function Dashboard() {
               width={32}
               height={32}
             />
-            <h1 className="text-lg md:text-xl font-bold">CloudBox file Storage</h1>
+            <h1 className="text-lg md:text-xl font-bold">CloudBox</h1>
           </div>
           
           <div className="flex items-center gap-2 md:gap-4">
