@@ -4,10 +4,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Next.js
+# Production builds
 .next/
 out/
 build/
+dist/
 
 # Environment variables
 .env
@@ -16,32 +17,49 @@ build/
 .env.test.local
 .env.production.local
 
-# IDE
+# IDE files
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# OS
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Backend
-backend/uploads/
-backend/target/
-backend/.env
-backend/mvnw.cmd
-backend/run.bat
+# Java
+*.class
 *.log
+*.ctxt
+.mtj.tmp/
 *.jar
-*.class\
+!backend/target/cloudbox-backend-1.0.0.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
 
+# Maven
 backend/target/
-target/
+!backend/target/cloudbox-backend-1.0.0.jar
+backend/.mvn/
+backend/mvnw
+backend/mvnw.cmd
 
+# Spring Boot
+backend/HELP.md
 
-# Frontend
-frontend/.next/
-frontend/node_modules/
+# AWS credentials
+aws-credentials.properties
+.aws/
 
-# Temporary
-temp-repo/
-package-lock.json
+# Logs
+logs/
+*.log
