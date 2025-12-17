@@ -32,7 +32,11 @@ backend/mvnw.cmd
 backend/run.bat
 *.log
 *.jar
-*.class
+*.class\
+
+backend/target/
+target/
+
 
 # Frontend
 frontend/.next/
