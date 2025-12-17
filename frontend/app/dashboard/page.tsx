@@ -28,7 +28,7 @@ import {
 import { logOut } from "@/lib/auth/auth.actions";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/user.context";
-import { uploadFilesToSpring, getFilesFromSpring, deleteFileFromSpring, downloadFileFromSpring, FileResponse } from "@/lib/api/files.actions";
+import { uploadFilesToSpring, getFilesFromSpring, deleteFileFromSpring, downloadFileFromSpring, createFolderInSpring, deleteFolderFromSpring, getStorageUsage, FileResponse, FolderResponse } from "@/lib/api/files.actions";
 
 export default function Dashboard() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -42,9 +42,9 @@ export default function Dashboard() {
   const [activeSection, setActiveSection] = useState<"home" | "mydrive" | "shared" | "favourite" | "trash">("home");
   const [favoriteFiles, setFavoriteFiles] = useState<Set<number>>(new Set());
   const [favoriteFolders, setFavoriteFolders] = useState<Set<number>>(new Set());
-  const [folders, setFolders] = useState<Array<{id: number, name: string, modified: string}>>([]);
+  const [folders, setFolders] = useState<FolderResponse[]>([]);
   const [trashedFiles, setTrashedFiles] = useState<FileResponse[]>([]);
-  const [trashedFolders, setTrashedFolders] = useState<Array<{id: number, name: string, modified: string}>>([]);
+  const [trashedFolders, setTrashedFolders] = useState<FolderResponse[]>([]);
   const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
@@ -53,6 +53,9 @@ export default function Dashboard() {
   const [notifications, setNotifications] = useState<Array<{id: number, message: string, type: 'success' | 'error' | 'info'}>>([]);
   const [showStorageDialog, setShowStorageDialog] = useState(false);
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annually">("monthly");
+  const [storageUsage, setStorageUsage] = useState({ usedMB: 0, maxMB: 1024, percentage: 0, availableMB: 1024 });
+  const [currentFolderPath, setCurrentFolderPath] = useState<string>("");
+  const [breadcrumbs, setBreadcrumbs] = useState<Array<{name: string, path: string}>>([]);
 
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     const id = Date.now();
@@ -226,17 +229,18 @@ export default function Dashboard() {
     setShowCreateFolderDialog(true);
   };
 
-  const createFolder = () => {
-    if (newFolderName.trim()) {
-      const newFolder = {
-        id: Date.now(),
-        name: newFolderName.trim(),
-        modified: new Date().toISOString()
-      };
-      setFolders(prev => [...prev, newFolder]);
-      showNotification(`Folder "${newFolderName.trim()}" created successfully`);
-      setNewFolderName("");
-      setShowCreateFolderDialog(false);
+  const createFolder = async () => {
+    if (newFolderName.trim() && user?.email) {
+      try {
+        await createFolderInSpring(newFolderName.trim(), user.email, currentFolderPath || undefined);
+        await loadFiles(currentFolderPath || undefined);
+        showNotification(`Folder "${newFolderName.trim()}" created successfully`);
+        setNewFolderName("");
+        setShowCreateFolderDialog(false);
+      } catch (error) {
+        console.error('Create folder failed:', error);
+        showNotification('Failed to create folder', 'error');
+      }
     }
   };
 
@@ -294,27 +298,33 @@ export default function Dashboard() {
     });
   };
 
-  const handleDeleteFile = async (fileId: number) => {
+  const handleDeleteFile = async (file: FileResponse) => {
     if (activeSection === "trash") {
-      const file = trashedFiles.find(f => f.id === fileId);
-      if (file) {
-        setDeleteItem({id: fileId, type: 'file', name: file.name});
-        setShowDeleteConfirm(true);
-      }
+      setDeleteItem({id: file.id, type: 'file', name: file.name});
+      setShowDeleteConfirm(true);
     } else {
-      moveFileToTrash(fileId);
-      // Also call backend delete if needed
-      if (user?.email) {
-        try {
-          await deleteFileFromSpring(fileId, user.email);
-        } catch (error) {
-          console.error('Backend delete failed:', error);
+      // Delete directly from S3 instead of moving to trash
+      if (!user?.email) return;
+      
+      try {
+        const response = await fetch(`http://localhost:8080/api/files/file?s3Key=${encodeURIComponent(file.key)}&userId=${user.email}`, {
+          method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to delete file');
         }
+        
+        await loadFiles();
+        showNotification(`"${file.name}" deleted successfully`);
+      } catch (error) {
+        console.error('Delete file failed:', error);
+        showNotification('Failed to delete file', 'error');
       }
     }
   };
 
-  const handleDeleteFolder = (folderId: number) => {
+  const handleDeleteFolder = async (folderId: number) => {
     if (activeSection === "trash") {
       const folder = trashedFolders.find(f => f.id === folderId);
       if (folder) {
@@ -322,7 +332,20 @@ export default function Dashboard() {
         setShowDeleteConfirm(true);
       }
     } else {
-      moveFolderToTrash(folderId);
+      // Delete directly from S3 instead of moving to trash
+      if (!user?.email) return;
+      
+      const folder = folders.find(f => f.id === folderId);
+      if (!folder) return;
+      
+      try {
+        await deleteFolderFromSpring(folder.fullPath, user.email);
+        await loadFiles();
+        showNotification(`Folder "${folder.name}" deleted successfully`);
+      } catch (error) {
+        console.error('Delete folder failed:', error);
+        showNotification('Failed to delete folder', 'error');
+      }
     }
   };
 
@@ -352,40 +375,45 @@ export default function Dashboard() {
       return;
     }
     
-    console.log('Starting upload for user:', user.email);
-    console.log('Files to upload:', Array.from(uploadedFiles).map(f => f.name));
+    // Calculate total file size
+    const totalSize = Array.from(uploadedFiles).reduce((sum, file) => sum + file.size, 0);
+    const totalSizeMB = totalSize / (1024 * 1024);
+    
+    // Check storage limit
+    if (storageUsage.usedMB + totalSizeMB > storageUsage.maxMB) {
+      showNotification(`Upload exceeds storage limit. Available: ${storageUsage.availableMB.toFixed(1)}MB`, 'error');
+      return;
+    }
     
     setLoading(true);
     setIsUploading(true);
     setUploadProgress(0);
     
-    // Simulate progress
+    // Real-time progress based on file size and estimated network speed
+    const estimatedUploadTimeMs = Math.max(2000, totalSizeMB * 100); // Minimum 2s, ~100ms per MB
     const progressInterval = setInterval(() => {
       setUploadProgress(prev => {
         if (prev >= 90) return prev;
-        return prev + Math.random() * 15;
+        const increment = (100 / estimatedUploadTimeMs) * 100; // Progress per 100ms
+        return Math.min(prev + increment, 90);
       });
-    }, 200);
+    }, 100);
     
     try {
-      const result = await uploadFilesToSpring(uploadedFiles, user.email);
-      console.log('Upload result:', result);
+      // Upload files to current folder
+      const result = await uploadFilesToSpring(uploadedFiles, user.email, currentFolderPath || undefined);
       
-      // Complete progress
       setUploadProgress(100);
       clearInterval(progressInterval);
       
-      // Small delay to show completion
       setTimeout(async () => {
-        await loadFiles();
+        await loadFiles(currentFolderPath || undefined);
         setIsUploading(false);
         setUploadProgress(0);
         
-        // Show success notification
         const fileCount = Array.from(uploadedFiles).length;
-        const fileNames = Array.from(uploadedFiles).map(f => f.name).join(', ');
         if (fileCount === 1) {
-          showNotification(`File "${fileNames}" uploaded successfully`);
+          showNotification(`File uploaded successfully`);
         } else {
           showNotification(`${fileCount} files uploaded successfully`);
         }
@@ -395,27 +423,77 @@ export default function Dashboard() {
       clearInterval(progressInterval);
       setIsUploading(false);
       setUploadProgress(0);
-      alert('Upload failed: ' + (error as Error).message);
+      showNotification('Upload failed: ' + (error as Error).message, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadFiles = async () => {
+  const loadFiles = async (folderPath?: string) => {
     if (!user?.email) {
       console.error('No user email for loading files');
       return;
     }
     
-    console.log('Loading files for user:', user.email);
     try {
-      const result = await getFilesFromSpring(user.email);
-      console.log('Loaded files:', result);
+      const result = await getFilesFromSpring(user.email, folderPath);
       setFiles(result.files);
       setFolders(result.folders);
+      
+      // Load storage usage
+      const usage = await fetch(`http://localhost:8080/api/files/storage-usage?userId=${user.email}`);
+      if (usage.ok) {
+        const usageData = await usage.json();
+        if (usageData.success) {
+          setStorageUsage({
+            usedMB: usageData.usedMB,
+            maxMB: usageData.maxMB,
+            percentage: usageData.percentage,
+            availableMB: usageData.availableMB
+          });
+        }
+      }
     } catch (error) {
       console.error('Failed to load files:', error);
     }
+  };
+
+  const navigateToFolder = (folderPath: string, folderName: string) => {
+    setCurrentFolderPath(folderPath);
+    
+    // Update breadcrumbs
+    const pathParts = folderPath.split('/').filter(part => part.length > 0);
+    const newBreadcrumbs = [{name: 'Home', path: ''}];
+    
+    let currentPath = '';
+    pathParts.forEach(part => {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      newBreadcrumbs.push({name: part, path: currentPath});
+    });
+    
+    setBreadcrumbs(newBreadcrumbs);
+    loadFiles(folderPath);
+  };
+
+  const navigateToBreadcrumb = (path: string) => {
+    setCurrentFolderPath(path);
+    
+    if (path === '') {
+      setBreadcrumbs([{name: 'Home', path: ''}]);
+    } else {
+      const pathParts = path.split('/').filter(part => part.length > 0);
+      const newBreadcrumbs = [{name: 'Home', path: ''}];
+      
+      let currentPath = '';
+      pathParts.forEach(part => {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+        newBreadcrumbs.push({name: part, path: currentPath});
+      });
+      
+      setBreadcrumbs(newBreadcrumbs);
+    }
+    
+    loadFiles(path || undefined);
   };
 
 
@@ -515,6 +593,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (user?.email) {
       loadFiles();
+      setBreadcrumbs([{name: 'Home', path: ''}]);
     }
   }, [user?.email]);
 
@@ -702,13 +781,13 @@ export default function Dashboard() {
                 <HardDrive className="w-4 h-4 mr-2" />
                 Storage
               </h3>
-              <p className="text-xs text-gray-400 mb-2">17.1 GB of 20 GB used</p>
+              <p className="text-xs text-gray-400 mb-2">{storageUsage.usedMB} MB of {storageUsage.maxMB} MB used</p>
               
               <div className="w-full bg-gray-700 rounded-full h-2 mb-3">
-                <div className="bg-[hsl(var(--primary))] h-2 rounded-full transition-all duration-300" style={{ width: '85.5%' }}></div>
+                <div className="bg-[hsl(var(--primary))] h-2 rounded-full transition-all duration-300" style={{ width: `${Math.min(storageUsage.percentage, 100)}%` }}></div>
               </div>
               
-              <p className="text-xs text-gray-400 mb-4">85.5% Full • 2.9 GB available</p>
+              <p className="text-xs text-gray-400 mb-4">{storageUsage.percentage}% Full • {storageUsage.availableMB} MB available</p>
               
               <Button size="sm" className="w-full bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/.9)] text-white" onClick={() => setShowStorageDialog(true)}>
                 <ShoppingCart className="w-4 h-4 mr-2" />
@@ -817,7 +896,26 @@ export default function Dashboard() {
           {/* My Drive Section */}
           {activeSection === "mydrive" && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-white">My Drive</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">My Drive</h2>
+              </div>
+              
+              {/* Breadcrumb Navigation */}
+              {breadcrumbs.length > 1 && (
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  {breadcrumbs.map((crumb, index) => (
+                    <div key={crumb.path} className="flex items-center gap-2">
+                      <button 
+                        onClick={() => navigateToBreadcrumb(crumb.path)}
+                        className="hover:text-[hsl(var(--primary))] transition-colors"
+                      >
+                        {crumb.name}
+                      </button>
+                      {index < breadcrumbs.length - 1 && <span>/</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
               
               {/* Folders Section */}
               {getFilteredFolders().length > 0 && (
@@ -826,7 +924,7 @@ export default function Dashboard() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
                     {getFilteredFolders().map((folder) => (
                       <Card key={folder.id} className="bg-gray-900 border-gray-700 hover:bg-gray-800 cursor-pointer relative">
-                        <CardContent className="p-4">
+                        <CardContent className="p-4" onClick={() => navigateToFolder(folder.fullPath, folder.name)}>
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-3">
                               <Folder className="w-8 h-8 text-yellow-400" />
@@ -928,7 +1026,7 @@ export default function Dashboard() {
                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-green-400 hover:bg-gray-700" title="Download" onClick={() => handleDownloadFile(file.id, file.name)}>
                                   <Download className="w-3 h-3" />
                                 </Button>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Move to Trash" onClick={() => handleDeleteFile(file.id)}>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Delete File" onClick={() => handleDeleteFile(file)}>
                                   <Trash2 className="w-3 h-3" />
                                 </Button>
                               </div>
@@ -965,7 +1063,7 @@ export default function Dashboard() {
                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-green-400" title="Download" onClick={() => handleDownloadFile(file.id, file.name)}>
                               <Download className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-red-400" title="Move to Trash" onClick={() => handleDeleteFile(file.id)}>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-red-400" title="Delete File" onClick={() => handleDeleteFile(file)}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
@@ -1148,7 +1246,7 @@ export default function Dashboard() {
                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-green-400 hover:bg-gray-700" title="Restore" onClick={() => restoreFile(file.id)}>
                                   <Upload className="w-3 h-3" />
                                 </Button>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Delete Permanently" onClick={() => handleDeleteFile(file.id)}>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Delete Permanently" onClick={() => handleDeleteFile(file)}>
                                   <Trash2 className="w-3 h-3" />
                                 </Button>
                               </div>
@@ -1179,7 +1277,7 @@ export default function Dashboard() {
                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-green-400" title="Restore" onClick={() => restoreFile(file.id)}>
                               <Upload className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-red-400" title="Delete Permanently" onClick={() => handleDeleteFile(file.id)}>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-red-400" title="Delete Permanently" onClick={() => handleDeleteFile(file)}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
