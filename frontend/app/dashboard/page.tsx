@@ -409,9 +409,10 @@ export default function Dashboard() {
     
     console.log('Loading files for user:', user.email);
     try {
-      const userFiles = await getFilesFromSpring(user.email);
-      console.log('Loaded files:', userFiles);
-      setFiles(userFiles);
+      const result = await getFilesFromSpring(user.email);
+      console.log('Loaded files:', result);
+      setFiles(result.files);
+      setFolders(result.folders);
     } catch (error) {
       console.error('Failed to load files:', error);
     }
