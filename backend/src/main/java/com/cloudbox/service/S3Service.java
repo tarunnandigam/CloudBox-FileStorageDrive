@@ -81,31 +81,44 @@ public class S3Service {
                     .prefix(prefix)
                     .build();
 
-            ListObjectsV2Response listResponse = s3Client.listObjectsV2(listRequest);
-            System.out.println("S3Service: Found " + listResponse.contents().size() + " objects to delete");
-            
-            if (listResponse.contents().isEmpty()) {
+            ListObjectsV2Response listResponse;
+            boolean objectsFound = false;
+
+            do {
+                listResponse = s3Client.listObjectsV2(listRequest);
+                System.out.println("S3Service: Found " + listResponse.contents().size() + " objects to delete in this batch");
+                
+                if (!listResponse.contents().isEmpty()) {
+                    objectsFound = true;
+                }
+                
+                for (S3Object object : listResponse.contents()) {
+                    System.out.println("S3Service: Attempting to delete: " + object.key());
+                    try {
+                        DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
+                                .bucket(bucketName)
+                                .key(object.key())
+                                .build();
+                        s3Client.deleteObject(deleteRequest);
+                        System.out.println("S3Service: Successfully deleted: " + object.key());
+                    } catch (Exception deleteError) {
+                        System.err.println("S3Service: Failed to delete " + object.key() + ": " + deleteError.getMessage());
+                        throw deleteError;
+                    }
+                }
+
+                listRequest = listRequest.toBuilder()
+                        .continuationToken(listResponse.nextContinuationToken())
+                        .build();
+
+            } while (listResponse.isTruncated());
+
+            if (!objectsFound) {
                 System.out.println("S3Service: WARNING - No objects found with prefix: " + prefix);
                 System.out.println("S3Service: This might mean the folder doesn't exist or path is incorrect");
-                return;
+            } else {
+                System.out.println("S3Service: Folder deletion completed successfully");
             }
-            
-            for (S3Object object : listResponse.contents()) {
-                System.out.println("S3Service: Attempting to delete: " + object.key());
-                try {
-                    DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(object.key())
-                            .build();
-                    s3Client.deleteObject(deleteRequest);
-                    System.out.println("S3Service: Successfully deleted: " + object.key());
-                } catch (Exception deleteError) {
-                    System.err.println("S3Service: Failed to delete " + object.key() + ": " + deleteError.getMessage());
-                    throw deleteError;
-                }
-            }
-            
-            System.out.println("S3Service: Folder deletion completed successfully");
             
         } catch (Exception e) {
             System.err.println("S3Service: Failed to delete folder - " + e.getMessage());
@@ -127,47 +140,56 @@ public class S3Service {
                     .delimiter("/")
                     .build();
 
-            ListObjectsV2Response listResponse = s3Client.listObjectsV2(listRequest);
-            
             List<Map<String, Object>> files = new ArrayList<>();
             List<Map<String, Object>> folders = new ArrayList<>();
             
-            // Process files
             int fileId = 1;
-            for (S3Object object : listResponse.contents()) {
-                if (!object.key().endsWith("/") && !object.key().equals(prefix)) {
-                    Map<String, Object> fileInfo = new HashMap<>();
-                    String fileName = object.key().substring(object.key().lastIndexOf("/") + 1);
-                    fileInfo.put("id", fileId++);
-                    fileInfo.put("name", fileName);
-                    fileInfo.put("size", formatFileSize(object.size()));
-                    fileInfo.put("modified", object.lastModified().toString());
-                    fileInfo.put("type", "file");
-                    fileInfo.put("key", object.key());
-                    fileInfo.put("sizeBytes", object.size());
-                    files.add(fileInfo);
-                }
-            }
-            
-            // Process folders (only direct subfolders, not nested ones)
             int folderId = 1;
-            for (CommonPrefix commonPrefix : listResponse.commonPrefixes()) {
-                String prefixStr = commonPrefix.prefix();
-                String folderName = prefixStr.substring(prefix.length());
-                if (folderName.endsWith("/")) {
-                    folderName = folderName.substring(0, folderName.length() - 1);
+            
+            ListObjectsV2Response listResponse;
+            do {
+                listResponse = s3Client.listObjectsV2(listRequest);
+                
+                // Process files
+                for (S3Object object : listResponse.contents()) {
+                    if (!object.key().endsWith("/") && !object.key().equals(prefix)) {
+                        Map<String, Object> fileInfo = new HashMap<>();
+                        String fileName = object.key().substring(object.key().lastIndexOf("/") + 1);
+                        fileInfo.put("id", fileId++);
+                        fileInfo.put("name", fileName);
+                        fileInfo.put("size", formatFileSize(object.size()));
+                        fileInfo.put("modified", object.lastModified().toString());
+                        fileInfo.put("type", "file");
+                        fileInfo.put("key", object.key());
+                        fileInfo.put("sizeBytes", object.size());
+                        files.add(fileInfo);
+                    }
                 }
-                if (!folderName.isEmpty() && !folderName.contains("/")) {
-                    Map<String, Object> folderInfo = new HashMap<>();
-                    folderInfo.put("id", folderId++);
-                    folderInfo.put("name", folderName);
-                    folderInfo.put("type", "folder");
-                    folderInfo.put("modified", java.time.Instant.now().toString());
-                    folderInfo.put("fullPath", folderPath != null && !folderPath.isEmpty() ? 
-                                   folderPath + "/" + folderName : folderName);
-                    folders.add(folderInfo);
+                
+                // Process folders (only direct subfolders, not nested ones)
+                for (CommonPrefix commonPrefix : listResponse.commonPrefixes()) {
+                    String prefixStr = commonPrefix.prefix();
+                    String folderName = prefixStr.substring(prefix.length());
+                    if (folderName.endsWith("/")) {
+                        folderName = folderName.substring(0, folderName.length() - 1);
+                    }
+                    if (!folderName.isEmpty() && !folderName.contains("/")) {
+                        Map<String, Object> folderInfo = new HashMap<>();
+                        folderInfo.put("id", folderId++);
+                        folderInfo.put("name", folderName);
+                        folderInfo.put("type", "folder");
+                        folderInfo.put("modified", java.time.Instant.now().toString());
+                        folderInfo.put("fullPath", folderPath != null && !folderPath.isEmpty() ? 
+                                       folderPath + "/" + folderName : folderName);
+                        folders.add(folderInfo);
+                    }
                 }
-            }
+
+                listRequest = listRequest.toBuilder()
+                        .continuationToken(listResponse.nextContinuationToken())
+                        .build();
+
+            } while (listResponse.isTruncated());
             
             Map<String, Object> result = new HashMap<>();
             result.put("files", files);

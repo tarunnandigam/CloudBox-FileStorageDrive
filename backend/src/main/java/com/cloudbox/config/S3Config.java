@@ -25,18 +25,22 @@ public class S3Config {
 
     @Bean
     public S3Client s3Client() {
-        AwsBasicCredentials awsCredentials = AwsBasicCredentials.create(accessKeyId, secretAccessKey);
-        
         ClientOverrideConfiguration clientConfig = ClientOverrideConfiguration.builder()
                 .apiCallTimeout(Duration.ofMinutes(2))
                 .apiCallAttemptTimeout(Duration.ofSeconds(90))
                 .retryPolicy(RetryPolicy.builder().numRetries(3).build())
                 .build();
         
-        return S3Client.builder()
+        software.amazon.awssdk.services.s3.S3ClientBuilder builder = S3Client.builder()
                 .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(awsCredentials))
-                .overrideConfiguration(clientConfig)
-                .build();
+                .overrideConfiguration(clientConfig);
+
+        if (accessKeyId != null && !accessKeyId.trim().isEmpty() &&
+            secretAccessKey != null && !secretAccessKey.trim().isEmpty()) {
+            AwsBasicCredentials awsCredentials = AwsBasicCredentials.create(accessKeyId, secretAccessKey);
+            builder.credentialsProvider(StaticCredentialsProvider.create(awsCredentials));
+        }
+
+        return builder.build();
     }
 }
