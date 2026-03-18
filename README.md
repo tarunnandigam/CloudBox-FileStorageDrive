@@ -6,10 +6,9 @@ A modern cloud file storage application with Next.js frontend and Spring Boot ba
 
 ```
 CloudBox/
-├── frontend/          # Next.js + React + TypeScript
-│   ├── app/          # Next.js 14 App Router
+├── frontend/          # Vite + React + JavaScript
+│   ├── src/          # Source Code
 │   ├── components/   # UI Components
-│   ├── lib/         # Utilities & API calls
 │   └── public/      # Static assets
 └── backend/          # Spring Boot + Maven + Java
     ├── config/      # AWS S3 configuration
@@ -31,13 +30,13 @@ mvn clean spring-boot:run  # Start development server
 ```
 Backend runs on: `http://localhost:8080`
 
-### 2. Start Frontend (Next.js)
+### 2. Start Frontend (Vite + React)
 ```bash
 cd frontend
 npm install
 npm run dev  # Start development server
 ```
-Frontend runs on: `http://localhost:3000`
+Frontend runs on: `http://localhost:5173`
 
 ## 🔐 Authentication
 - **Appwrite** - User authentication with OTP
@@ -55,8 +54,9 @@ Frontend runs on: `http://localhost:3000`
 ## 🛠️ Tech Stack
 
 ### Frontend
-- **Next.js 14** - React framework with App Router
-- **TypeScript** - Type-safe development
+- **Vite** - Next Generation Frontend Tooling
+- **React.js** - UI Library
+- **JavaScript** - Core language
 - **Tailwind CSS** - Utility-first styling
 - **shadcn/ui** - Modern UI components
 - **Appwrite** - Authentication service
