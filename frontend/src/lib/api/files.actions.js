@@ -88,7 +88,7 @@ export const getFilesFromSpring = async (userId, folderPath) => {
 };
 
 export const downloadFileFromSpring = async (fileId, userId) => {
-  const response = await fetch(`${SPRING_API_BASE}/files/download/${fileId}?userId=${userId}`);
+  const response = await fetch(`${SPRING_API_BASE}/files/download?s3Key=${encodeURIComponent(fileId)}&userId=${userId}`);
 
   if (!response.ok) {
     throw new Error('Download failed');
@@ -98,7 +98,7 @@ export const downloadFileFromSpring = async (fileId, userId) => {
 };
 
 export const deleteFileFromSpring = async (fileId, userId) => {
-  const response = await fetch(`${SPRING_API_BASE}/files/${fileId}?userId=${userId}`, {
+  const response = await fetch(`${SPRING_API_BASE}/files/file?s3Key=${encodeURIComponent(fileId)}&userId=${userId}`, {
     method: 'DELETE'
   });
 

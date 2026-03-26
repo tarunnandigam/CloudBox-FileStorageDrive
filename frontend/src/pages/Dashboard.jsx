@@ -261,8 +261,8 @@ export default function Dashboard() {
     if (!user?.email) return;
 
     try {
-      // Use the file's S3 key for deletion
-      const response = await fetch(`http://localhost:8081/api/files/file?s3Key=${encodeURIComponent(file.key)}&userId=${user.email}`, {
+      const SPRING_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081/api';
+      const response = await fetch(`${SPRING_API_BASE}/files/file?s3Key=${encodeURIComponent(file.key)}&userId=${user.email}`, {
         method: 'DELETE'
       });
 
@@ -327,7 +327,8 @@ export default function Dashboard() {
 
     if (confirm('Are you sure you want to delete ALL files and folders? This cannot be undone.')) {
       try {
-        const response = await fetch(`http://localhost:8081/api/files/clear-all?userId=${user.email}`, {
+        const SPRING_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081/api';
+        const response = await fetch(`${SPRING_API_BASE}/files/clear-all?userId=${user.email}`, {
           method: 'DELETE'
         });
 
