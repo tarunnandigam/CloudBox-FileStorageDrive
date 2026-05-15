@@ -1,23 +1,5 @@
 const SPRING_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081/api';
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export const uploadFilesToSpring = async (files, userId, folderPath) => {
   console.log('API: Starting upload to', `${SPRING_API_BASE}/files/upload`);
   console.log('API: UserId:', userId);
