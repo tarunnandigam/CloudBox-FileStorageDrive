@@ -27,6 +27,16 @@ export async function verifyOTP(userId, otp) {
       return { success: false, error: "Missing userId or OTP" };
     }
 
+    // Delete any existing active session before creating a new one.
+    // Appwrite throws "Creation of a session is prohibited when a session is active"
+    // if a session already exists, so we clear it first.
+    try {
+      await account.deleteSession('current');
+      console.log('Existing session deleted before OTP verification');
+    } catch (_) {
+      // No active session to delete — this is fine, continue
+    }
+
     const session = await account.createSession(userId, otp);
     console.log('Session created successfully:', session);
 
