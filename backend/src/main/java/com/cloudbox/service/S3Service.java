@@ -70,25 +70,35 @@ public class S3Service {
         if (legacyUserId == null || legacyUserId.isBlank() || legacyUserId.equals(userId)) {
             return;
         }
-        String sourcePrefix = legacyUserId + "/";
-        ListObjectsV2Request request = ListObjectsV2Request.builder()
-                .bucket(bucketName).prefix(sourcePrefix).build();
-        boolean truncated;
-        do {
-            ListObjectsV2Response response = s3Client.listObjectsV2(request);
-            for (S3Object object : response.contents()) {
-                if (object.key().equals(quotaLockKey(legacyUserId))) {
-                    continue;
+        try {
+            String sourcePrefix = legacyUserId + "/";
+            ListObjectsV2Request request = ListObjectsV2Request.builder()
+                    .bucket(bucketName).prefix(sourcePrefix).build();
+            boolean truncated;
+            do {
+                ListObjectsV2Response response = s3Client.listObjectsV2(request);
+                if (response.contents().isEmpty()) {
+                    break;
                 }
-                String destinationKey = userId + object.key().substring(legacyUserId.length());
-                s3Client.copyObject(CopyObjectRequest.builder().bucket(bucketName)
-                        .copySource(bucketName + "/" + object.key()).key(destinationKey).build());
-                s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucketName)
-                        .key(object.key()).build());
-            }
-            truncated = response.isTruncated();
-            request = request.toBuilder().continuationToken(response.nextContinuationToken()).build();
-        } while (truncated);
+                for (S3Object object : response.contents()) {
+                    if (object.key().equals(quotaLockKey(legacyUserId))) {
+                        continue;
+                    }
+                    String destinationKey = userId + object.key().substring(legacyUserId.length());
+                    s3Client.copyObject(CopyObjectRequest.builder().bucket(bucketName)
+                            .copySource(bucketName + "/" + object.key()).key(destinationKey).build());
+                    s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucketName)
+                            .key(object.key()).build());
+                    System.out.println("S3Service: Migrated legacy file " + object.key() + " to " + destinationKey);
+                }
+                truncated = response.isTruncated();
+                if (truncated) {
+                    request = request.toBuilder().continuationToken(response.nextContinuationToken()).build();
+                }
+            } while (truncated);
+        } catch (Exception e) {
+            System.err.println("S3Service: Migration from " + legacyUserId + " to " + userId + " skipped or error: " + e.getMessage());
+        }
     }
 
     public String uploadFile(MultipartFile file, String userId, String folderPath) throws IOException {

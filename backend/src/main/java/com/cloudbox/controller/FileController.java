@@ -270,8 +270,13 @@ public class FileController {
 
     private String authenticatedUser(HttpServletRequest request) {
         AppwriteAuthService.AccountDetails account = appwriteAuthService.requireAccount(request);
-        fileService.migrateLegacyFiles(account.email(), account.id());
-        return account.id();
+        String userIdentifier = account.email();
+        if (userIdentifier == null || userIdentifier.isBlank()) {
+            userIdentifier = account.id();
+        } else {
+            fileService.migrateLegacyFiles(account.id(), userIdentifier);
+        }
+        return userIdentifier;
     }
 
     private void rethrowAuthorizationException(Exception exception) {
