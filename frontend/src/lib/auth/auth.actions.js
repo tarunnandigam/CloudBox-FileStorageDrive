@@ -2,6 +2,7 @@
 
 import { account } from "@/lib/appwrite";
 import { ID } from "appwrite";
+import { clearJwtCache } from "@/lib/api/files.actions";
 
 export async function sendOTP(email) {
   try {
@@ -37,6 +38,7 @@ export async function verifyOTP(userId, otp) {
       // No active session to delete — this is fine, continue
     }
 
+    clearJwtCache();
     const session = await account.createSession(userId, otp);
     console.log('Session created successfully:', session);
 
@@ -49,9 +51,11 @@ export async function verifyOTP(userId, otp) {
 
 export async function logOut() {
   try {
+    clearJwtCache();
     await account.deleteSession('current');
     return { success: true };
   } catch (error) {
+    clearJwtCache();
     return { success: false, error: error.message };
   }
 }

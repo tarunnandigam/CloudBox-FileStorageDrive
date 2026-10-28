@@ -6,6 +6,12 @@ let cachedJwtExpiresAt = 0;
 let jwtRequest;
 const JWT_CACHE_TTL_MS = 4 * 60 * 1000;
 
+export const clearJwtCache = () => {
+  cachedJwt = null;
+  cachedJwtExpiresAt = 0;
+  jwtRequest = undefined;
+};
+
 export const authHeaders = async () => {
   if (cachedJwt && Date.now() < cachedJwtExpiresAt) {
     return {
@@ -55,6 +61,9 @@ export const uploadFilesToSpring = async (files, userId, folderPath) => {
     console.log('API: Upload response status:', response.status);
 
     if (!response.ok) {
+      if (response.status === 401) {
+        clearJwtCache();
+      }
       const errorText = await response.text();
       console.error('API: Upload error response:', errorText);
       throw new Error(`Upload failed: ${response.status} - ${errorText}`);
@@ -83,6 +92,9 @@ export const getFilesFromSpring = async (userId, folderPath) => {
     console.log('API: Files response status:', response.status);
 
     if (!response.ok) {
+      if (response.status === 401) {
+        clearJwtCache();
+      }
       const errorText = await response.text();
       console.error('API: Files error response:', errorText);
       throw new Error(`Failed to fetch files: ${response.status} - ${errorText}`);

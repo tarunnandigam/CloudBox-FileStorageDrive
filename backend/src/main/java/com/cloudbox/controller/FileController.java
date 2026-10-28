@@ -20,9 +20,13 @@ import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.server.ResponseStatusException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @RestController
 @RequestMapping("/api/files")
 public class FileController {
+    private static final Logger logger = LoggerFactory.getLogger(FileController.class);
     
     @Autowired
     private FileService fileService;
@@ -272,6 +276,8 @@ public class FileController {
 
     private void rethrowAuthorizationException(Exception exception) {
         if (exception instanceof ResponseStatusException responseStatusException) {
+            logger.warn("Authorization rejected: status={}, reason={}", 
+                    responseStatusException.getStatusCode(), responseStatusException.getReason());
             throw responseStatusException;
         }
     }
