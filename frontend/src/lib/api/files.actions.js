@@ -8,7 +8,10 @@ const JWT_CACHE_TTL_MS = 4 * 60 * 1000;
 
 export const authHeaders = async () => {
   if (cachedJwt && Date.now() < cachedJwtExpiresAt) {
-    return { Authorization: 'Bearer ' + cachedJwt };
+    return {
+      Authorization: 'Bearer ' + cachedJwt,
+      'X-Appwrite-JWT': cachedJwt
+    };
   }
   if (!jwtRequest) {
     jwtRequest = account.createJWT().then(({ jwt }) => {
@@ -19,7 +22,11 @@ export const authHeaders = async () => {
       jwtRequest = undefined;
     });
   }
-  return { Authorization: 'Bearer ' + await jwtRequest };
+  const jwt = await jwtRequest;
+  return {
+    Authorization: 'Bearer ' + jwt,
+    'X-Appwrite-JWT': jwt
+  };
 };
 
 

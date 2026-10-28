@@ -35,8 +35,13 @@ public class AppwriteAuthService {
 
     public AccountDetails requireAccount(HttpServletRequest request) {
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (authorization == null || !authorization.startsWith("Bearer ")
-                || projectId == null || projectId.isBlank()) {
+        String jwt = request.getHeader("X-Appwrite-JWT");
+        if (jwt == null || jwt.isBlank()) {
+            if (authorization != null && authorization.startsWith("Bearer ")) {
+                jwt = authorization.substring("Bearer ".length());
+            }
+        }
+        if (jwt == null || jwt.isBlank() || projectId == null || projectId.isBlank()) {
             throw new ResponseStatusException(UNAUTHORIZED, "Authentication is required");
         }
 
@@ -45,7 +50,7 @@ public class AppwriteAuthService {
             account = restClient.get()
                     .uri("/account")
                     .header("X-Appwrite-Project", projectId)
-                    .header("X-Appwrite-JWT", authorization.substring("Bearer ".length()))
+                    .header("X-Appwrite-JWT", jwt)
                     .retrieve()
                     .body(JsonNode.class);
         } catch (RestClientResponseException exception) {
