@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 
@@ -356,7 +357,9 @@ public class S3Service {
         for (int attempt = 0; attempt < 30; attempt++) {
             try {
                 s3Client.putObject(PutObjectRequest.builder().bucket(bucketName).key(lockKey)
-                        .ifNoneMatch("*").build(), RequestBody.fromBytes(new byte[0]));
+                        .overrideConfiguration(AwsRequestOverrideConfiguration.builder()
+                                .putHeader("If-None-Match", "*").build())
+                        .build(), RequestBody.fromBytes(new byte[0]));
                 return;
             } catch (S3Exception exception) {
                 if (exception.statusCode() != 412 && exception.statusCode() != 409) {
