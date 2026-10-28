@@ -28,7 +28,7 @@ import {
 import { logOut } from "@/lib/auth/auth.actions";
 import { useNavigate as useRouter } from "react-router-dom";
 import { useUser } from "@/context/user.context";
-import { uploadFilesToSpring, getFilesFromSpring, downloadFileFromSpring, createFolderInSpring, deleteFolderFromSpring, getStorageUsage } from "@/lib/api/files.actions";
+import { uploadFilesToSpring, getFilesFromSpring, downloadFileFromSpring, createFolderInSpring, deleteFolderFromSpring, getStorageUsage, authHeaders } from "@/lib/api/files.actions";
 
 export default function Dashboard() {
   const [viewMode, setViewMode] = useState("grid");
@@ -262,8 +262,9 @@ export default function Dashboard() {
 
     try {
       const SPRING_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081/api';
-      const response = await fetch(`${SPRING_API_BASE}/files/file?s3Key=${encodeURIComponent(file.key)}&userId=${user.email}`, {
-        method: 'DELETE'
+      const response = await fetch(`${SPRING_API_BASE}/files/file?s3Key=${encodeURIComponent(file.key)}&userId=${encodeURIComponent(user.email)}`, {
+        method: 'DELETE',
+        headers: await authHeaders()
       });
 
       if (!response.ok) {
@@ -328,8 +329,9 @@ export default function Dashboard() {
     if (confirm('Are you sure you want to delete ALL files and folders? This cannot be undone.')) {
       try {
         const SPRING_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081/api';
-        const response = await fetch(`${SPRING_API_BASE}/files/clear-all?userId=${user.email}`, {
-          method: 'DELETE'
+        const response = await fetch(`${SPRING_API_BASE}/files/clear-all?userId=${encodeURIComponent(user.email)}`, {
+          method: 'DELETE',
+          headers: await authHeaders()
         });
 
         if (!response.ok) {

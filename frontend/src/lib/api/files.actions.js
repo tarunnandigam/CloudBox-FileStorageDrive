@@ -1,4 +1,27 @@
 const SPRING_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081/api';
+import { account } from '@/lib/appwrite';
+
+let cachedJwt;
+let cachedJwtExpiresAt = 0;
+let jwtRequest;
+const JWT_CACHE_TTL_MS = 4 * 60 * 1000;
+
+export const authHeaders = async () => {
+  if (cachedJwt && Date.now() < cachedJwtExpiresAt) {
+    return { Authorization: 'Bearer ' + cachedJwt };
+  }
+  if (!jwtRequest) {
+    jwtRequest = account.createJWT().then(({ jwt }) => {
+      cachedJwt = jwt;
+      cachedJwtExpiresAt = Date.now() + JWT_CACHE_TTL_MS;
+      return jwt;
+    }).finally(() => {
+      jwtRequest = undefined;
+    });
+  }
+  return { Authorization: 'Bearer ' + await jwtRequest };
+};
+
 
 export const uploadFilesToSpring = async (files, userId, folderPath) => {
   console.log('API: Starting upload to', `${SPRING_API_BASE}/files/upload`);
@@ -18,6 +41,7 @@ export const uploadFilesToSpring = async (files, userId, folderPath) => {
   try {
     const response = await fetch(`${SPRING_API_BASE}/files/upload`, {
       method: 'POST',
+      headers: await authHeaders(),
       body: formData
     });
 
@@ -47,7 +71,7 @@ export const getFilesFromSpring = async (userId, folderPath) => {
       url += `&folderPath=${encodeURIComponent(folderPath)}`;
     }
 
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: await authHeaders() });
 
     console.log('API: Files response status:', response.status);
 
@@ -70,7 +94,9 @@ export const getFilesFromSpring = async (userId, folderPath) => {
 };
 
 export const downloadFileFromSpring = async (fileId, userId) => {
-  const response = await fetch(`${SPRING_API_BASE}/files/download?s3Key=${encodeURIComponent(fileId)}&userId=${userId}`);
+  const response = await fetch(`${SPRING_API_BASE}/files/download?s3Key=${encodeURIComponent(fileId)}&userId=${encodeURIComponent(userId)}`, {
+    headers: await authHeaders()
+  });
 
   if (!response.ok) {
     throw new Error('Download failed');
@@ -80,8 +106,9 @@ export const downloadFileFromSpring = async (fileId, userId) => {
 };
 
 export const deleteFileFromSpring = async (fileId, userId) => {
-  const response = await fetch(`${SPRING_API_BASE}/files/file?s3Key=${encodeURIComponent(fileId)}&userId=${userId}`, {
-    method: 'DELETE'
+  const response = await fetch(`${SPRING_API_BASE}/files/file?s3Key=${encodeURIComponent(fileId)}&userId=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: await authHeaders()
   });
 
   if (!response.ok) {
@@ -104,6 +131,7 @@ export const createFolderInSpring = async (folderName, userId, parentFolderPath)
   try {
     const response = await fetch(`${SPRING_API_BASE}/files/folder`, {
       method: 'POST',
+      headers: await authHeaders(),
       body: formData
     });
 
@@ -127,7 +155,8 @@ export const deleteFolderFromSpring = async (folderPath, userId) => {
   const url = `${SPRING_API_BASE}/files/folder?userId=${userId}&folderPath=${encodeURIComponent(folderPath)}`;
   console.log('API: Delete URL:', url);
   const response = await fetch(url, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: await authHeaders()
   });
 
   console.log('API: Delete response status:', response.status);
@@ -144,7 +173,9 @@ export const deleteFolderFromSpring = async (folderPath, userId) => {
 };
 
 export const getStorageUsage = async (userId) => {
-  const response = await fetch(`${SPRING_API_BASE}/files/storage-usage?userId=${userId}`);
+  const response = await fetch(`${SPRING_API_BASE}/files/storage-usage?userId=${encodeURIComponent(userId)}`, {
+    headers: await authHeaders()
+  });
 
   if (!response.ok) {
     throw new Error('Failed to get storage usage');

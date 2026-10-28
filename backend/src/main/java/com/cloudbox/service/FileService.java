@@ -7,6 +7,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -15,8 +16,12 @@ public class FileService {
     @Autowired
     private S3Service s3Service;
     
-    public String uploadFile(MultipartFile file, String userId, String folderPath) throws IOException {
-        return s3Service.uploadFile(file, userId, folderPath);
+    public List<String> uploadFiles(MultipartFile[] files, String userId, String folderPath) throws IOException {
+        return s3Service.uploadFiles(files, userId, folderPath);
+    }
+
+    public void migrateLegacyFiles(String legacyUserId, String userId) {
+        s3Service.migrateLegacyFiles(legacyUserId, userId);
     }
     
     public void createFolder(String folderName, String userId, String parentFolderPath) {
@@ -33,14 +38,8 @@ public class FileService {
         return s3Service.getUserStorageUsage(userId);
     }
     
-    public boolean canUpload(String userId, long fileSize) {
-        long currentUsage = getUserStorageUsage(userId);
-        long maxStorage = 1024L * 1024L * 1024L; // 1GB in bytes
-        return (currentUsage + fileSize) <= maxStorage;
-    }
-    
-    public void deleteFile(String s3Key) {
-        s3Service.deleteFile(s3Key);
+    public void deleteFile(String userId, String s3Key) {
+        s3Service.deleteFile(userId, s3Key);
     }
     
 
@@ -61,7 +60,7 @@ public class FileService {
         s3Service.deleteFolder(userId, "");
     }
     
-    public ResponseInputStream<GetObjectResponse> downloadFile(String s3Key) {
-        return s3Service.downloadFile(s3Key);
+    public ResponseInputStream<GetObjectResponse> downloadFile(String userId, String s3Key) {
+        return s3Service.downloadFile(userId, s3Key);
     }
 }

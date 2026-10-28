@@ -12,6 +12,10 @@ import software.amazon.awssdk.services.s3.model.*;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.logging.Logger;
 
 @Service
 public class S3Service {
@@ -22,17 +26,85 @@ public class S3Service {
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
 
+    private static final long MAX_STORAGE = 1024L * 1024L * 1024L;
+    private static final String QUOTA_LOCK_SUFFIX = ".cloudbox-quota-lock";
+    private static final Duration QUOTA_LOCK_TTL = Duration.ofMinutes(10);
+    private static final Logger LOGGER = Logger.getLogger(S3Service.class.getName());
+
+    public List<String> uploadFiles(MultipartFile[] files, String userId, String folderPath) throws IOException {
+        long totalSize = Arrays.stream(files).mapToLong(MultipartFile::getSize).sum();
+        String lockKey = quotaLockKey(userId);
+        acquireQuotaLock(lockKey);
+        List<String> uploadedKeys = new ArrayList<>();
+        try {
+            if (getUserStorageUsage(userId) + totalSize > MAX_STORAGE) {
+                throw new IOException("Storage limit exceeded. Maximum 1GB allowed.");
+            }
+            for (MultipartFile file : files) {
+                uploadedKeys.add(uploadFile(file, userId, folderPath));
+            }
+            return uploadedKeys;
+        } catch (Exception exception) {
+            for (String key : uploadedKeys) {
+                try {
+                    deleteFile(userId, key);
+                } catch (RuntimeException cleanupException) {
+                    exception.addSuppressed(cleanupException);
+                }
+            }
+            if (exception instanceof IOException ioException) {
+                throw ioException;
+            }
+            throw new IOException("Failed to upload files", exception);
+        } finally {
+            try {
+                s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucketName).key(lockKey).build());
+            } catch (RuntimeException releaseException) {
+                LOGGER.warning("Unable to release quota lock: " + releaseException.getMessage());
+            }
+        }
+    }
+
+    public void migrateLegacyFiles(String legacyUserId, String userId) {
+        if (legacyUserId == null || legacyUserId.isBlank() || legacyUserId.equals(userId)) {
+            return;
+        }
+        String sourcePrefix = legacyUserId + "/";
+        ListObjectsV2Request request = ListObjectsV2Request.builder()
+                .bucket(bucketName).prefix(sourcePrefix).build();
+        boolean truncated;
+        do {
+            ListObjectsV2Response response = s3Client.listObjectsV2(request);
+            for (S3Object object : response.contents()) {
+                if (object.key().equals(quotaLockKey(legacyUserId))) {
+                    continue;
+                }
+                String destinationKey = userId + object.key().substring(legacyUserId.length());
+                s3Client.copyObject(CopyObjectRequest.builder().bucket(bucketName)
+                        .copySource(bucketName + "/" + object.key()).key(destinationKey).build());
+                s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucketName)
+                        .key(object.key()).build());
+            }
+            truncated = response.isTruncated();
+            request = request.toBuilder().continuationToken(response.nextContinuationToken()).build();
+        } while (truncated);
+    }
+
     public String uploadFile(MultipartFile file, String userId, String folderPath) throws IOException {
         try {
+            validatePath(folderPath);
             String s3Key = userId + "/";
             if (folderPath != null && !folderPath.isEmpty()) {
                 s3Key += folderPath + "/";
             }
-            s3Key += UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
+            String filename = file.getOriginalFilename() == null ? "unnamed-file" :
+                    file.getOriginalFilename().replace('\\', '/');
+            filename = filename.substring(filename.lastIndexOf('/') + 1).replaceAll("[\\r\\n]", "_");
+            if (filename.isBlank()) {
+                filename = "unnamed-file";
+            }
+            s3Key += UUID.randomUUID() + "_" + filename;
             
-            System.out.println("Uploading file to S3 with key: " + s3Key);
-            System.out.println("Bucket: " + bucketName);
-            System.out.println("File size: " + file.getSize());
             
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(bucketName)
@@ -42,18 +114,15 @@ public class S3Service {
                     .build();
 
             s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
-            System.out.println("Successfully uploaded file to S3: " + s3Key);
-            
             return s3Key;
         } catch (Exception e) {
-            System.err.println("S3 upload error: " + e.getMessage());
-            e.printStackTrace();
             throw new IOException("Failed to upload file to S3: " + e.getMessage(), e);
         }
     }
 
     public void createFolder(String userId, String folderPath) {
         try {
+            validatePath(folderPath);
             String s3Key = userId + "/" + folderPath + "/";
             
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
@@ -69,6 +138,7 @@ public class S3Service {
 
     public void deleteFolder(String userId, String folderPath) {
         try {
+            validatePath(folderPath);
             String prefix = userId + "/" + folderPath;
             if (!prefix.endsWith("/")) {
                 prefix += "/";
@@ -93,6 +163,9 @@ public class S3Service {
                 }
                 
                 for (S3Object object : listResponse.contents()) {
+                    if (object.key().equals(quotaLockKey(userId))) {
+                        continue;
+                    }
                     System.out.println("S3Service: Attempting to delete: " + object.key());
                     try {
                         DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
@@ -129,6 +202,7 @@ public class S3Service {
     
     public Map<String, Object> listFiles(String userId, String folderPath) {
         try {
+            validatePath(folderPath);
             String prefix = userId + "/";
             if (folderPath != null && !folderPath.isEmpty()) {
                 prefix += folderPath + "/";
@@ -152,7 +226,8 @@ public class S3Service {
                 
                 // Process files
                 for (S3Object object : listResponse.contents()) {
-                    if (!object.key().endsWith("/") && !object.key().equals(prefix)) {
+                    if (!object.key().endsWith("/") && !object.key().equals(prefix)
+                            && !object.key().equals(quotaLockKey(userId))) {
                         Map<String, Object> fileInfo = new HashMap<>();
                         String fileName = object.key().substring(object.key().lastIndexOf("/") + 1);
                         fileInfo.put("id", fileId++);
@@ -236,7 +311,8 @@ public class S3Service {
         return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
-    public ResponseInputStream<GetObjectResponse> downloadFile(String s3Key) {
+    public ResponseInputStream<GetObjectResponse> downloadFile(String userId, String s3Key) {
+        validateKeyOwnership(userId, s3Key);
         try {
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucketName)
@@ -249,7 +325,8 @@ public class S3Service {
         }
     }
     
-    public void deleteFile(String s3Key) {
+    public void deleteFile(String userId, String s3Key) {
+        validateKeyOwnership(userId, s3Key);
         try {
             DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
                     .bucket(bucketName)
@@ -259,5 +336,61 @@ public class S3Service {
         } catch (Exception e) {
             throw new RuntimeException("Failed to delete file from S3: " + e.getMessage(), e);
         }
+    }
+
+    private void validateKeyOwnership(String userId, String key) {
+        if (key == null || key.equals(quotaLockKey(userId)) || !key.startsWith(userId + "/") || key.contains("..")
+                || key.indexOf('\r') >= 0 || key.indexOf('\n') >= 0) {
+            throw new IllegalArgumentException("Invalid file key");
+        }
+    }
+
+    private void validatePath(String path) {
+        if (path != null && (path.contains("..") || path.startsWith("/") || path.endsWith("/")
+                || path.indexOf('\r') >= 0 || path.indexOf('\n') >= 0)) {
+            throw new IllegalArgumentException("Invalid folder path");
+        }
+    }
+
+    private void acquireQuotaLock(String lockKey) throws IOException {
+        for (int attempt = 0; attempt < 30; attempt++) {
+            try {
+                s3Client.putObject(PutObjectRequest.builder().bucket(bucketName).key(lockKey)
+                        .ifNoneMatch("*").build(), RequestBody.fromBytes(new byte[0]));
+                return;
+            } catch (S3Exception exception) {
+                if (exception.statusCode() != 412 && exception.statusCode() != 409) {
+                    throw new IOException("Unable to reserve upload quota", exception);
+                }
+                if (exception.statusCode() == 412) {
+                    try {
+                        HeadObjectResponse lock = s3Client.headObject(HeadObjectRequest.builder()
+                                .bucket(bucketName).key(lockKey).build());
+                        if (lock.lastModified() != null
+                                && lock.lastModified().isBefore(Instant.now().minus(QUOTA_LOCK_TTL))) {
+                            s3Client.deleteObject(DeleteObjectRequest.builder()
+                                    .bucket(bucketName).key(lockKey).build());
+                            continue;
+                        }
+                    } catch (S3Exception headException) {
+                        if (headException.statusCode() == 404) {
+                            continue;
+                        }
+                        throw headException;
+                    }
+                }
+                try {
+                    TimeUnit.MILLISECONDS.sleep(200);
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while reserving upload quota", interruptedException);
+                }
+            }
+        }
+        throw new IOException("Upload quota is busy; please retry");
+    }
+
+    private String quotaLockKey(String userId) {
+        return userId + "/" + QUOTA_LOCK_SUFFIX;
     }
 }

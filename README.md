@@ -30,6 +30,11 @@ mvn clean spring-boot:run  # Start development server
 ```
 Backend runs on: `http://localhost:8080`
 
+The backend validates every file request with an Appwrite JWT. Set
+`APPWRITE_ENDPOINT` and `APPWRITE_PROJECT_ID` in the backend environment
+(the frontend must use the same Appwrite project). The `userId` query/form
+parameter is retained for client compatibility but is not trusted.
+
 ### 2. Start Frontend (Vite + React)
 ```bash
 cd frontend
@@ -129,6 +134,7 @@ Frontend runs on: `http://localhost:5173`
 - **User Isolation** - Files separated by user ID
 - **Storage Limits** - Prevent abuse with 1GB quota
 - **CORS Protection** - Frontend-backend security
+- **Server-side authorization** - Appwrite JWTs determine the S3 namespace
 
 ## 📊 Storage Management
 - **1GB Limit** - Maximum storage per user
